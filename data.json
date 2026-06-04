@@ -1,6 +1,23 @@
 {
   "articles": [
     {
+      "id": "art_1780578672088",
+      "url": "https://substack.com/home/post/p-190872801",
+      "title": "Being John Rawls",
+      "author": "Scott Alexander",
+      "source": "Astral Codex Ten",
+      "date_saved": "2026-06-04",
+      "date_read": null,
+      "status": "unread",
+      "summary": "A man named John Rawls seeks aid from a foundation and undergoes mysterious experimental screening.",
+      "notes": "",
+      "topics": [
+        "Psychology",
+        "Philosophy"
+      ],
+      "tagged_for": []
+    },
+    {
       "id": "art_1780578662598",
       "url": "https://www.andrew.today/p/10-questions-to-ask-yourself-before?img=https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F22c24974-0aef-447d-88ab-ddaf908c5ba2_1507x2009.jpeg&open=false",
       "title": "10 Questions to Ask Yourself Before 2026",
