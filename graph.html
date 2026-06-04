@@ -20,8 +20,8 @@
 <div class="graph-container" id="graph-container">
   <div class="tooltip" id="tooltip"></div>
   <div class="graph-legend">
-    <div class="legend-item"><div class="legend-dot topic"></div> Topic</div>
-    <div class="legend-item"><div class="legend-dot article"></div> Unread</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#111111"></div> Topic</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#b8892a"></div> Unread</div>
     <div class="legend-item"><div class="legend-dot" style="background:#2e8b57"></div> Read</div>
   </div>
 </div>
@@ -162,7 +162,8 @@ function renderGraph() {
       return 100;
     }))
     .force('charge', d3.forceManyBody().strength(d => d.type === 'topic' ? -400 : -80))
-    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('x', d3.forceX(d => d.type === 'topic' ? width * 0.28 : width * 0.65).strength(0.12))
+    .force('y', d3.forceY(height / 2).strength(0.06))
     .force('collision', d3.forceCollide().radius(d => d.type === 'topic' ? 30 : 15));
 
   // Draw links
@@ -197,7 +198,7 @@ function renderGraph() {
       if (d.type === 'topic') return 3.5 + (d.count || 1) * 1.2;
       return 3;
     })
-    .attr('fill', d => d.type === 'topic' ? '#1e2d4a' : (d.data?.status === 'read' ? '#2e8b57' : '#b8892a'))
+    .attr('fill', d => d.type === 'topic' ? '#111111' : (d.data?.status === 'read' ? '#2e8b57' : '#b8892a'))
     .attr('stroke', 'none');
 
   // Labels
@@ -210,7 +211,7 @@ function renderGraph() {
       : "'Georgia', 'Times New Roman', serif")
     .attr('font-size', d => d.type === 'topic' ? '12px' : '9.5px')
     .attr('font-style', d => d.type === 'article' ? 'italic' : 'normal')
-    .attr('fill', d => d.type === 'topic' ? '#1e2d4a' : '#9e9181')
+    .attr('fill', d => d.type === 'topic' ? '#111111' : '#9e9181')
     .attr('letter-spacing', d => d.type === 'topic' ? '0.04em' : '0')
     .text(d => {
       const label = d.label;
