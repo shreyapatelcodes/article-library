@@ -1,6 +1,24 @@
 {
   "articles": [
     {
+      "id": "art_1780579205012",
+      "url": "https://www.theverge.com/2016/8/3/12325104/airbnb-aesthetic-global-minimalism-startup-gentrification",
+      "title": "How Silicon Valley helps spread the same sterile aesthetic across the world",
+      "author": "Kyle Chayka",
+      "source": "The Verge",
+      "date_saved": "2026-06-04",
+      "date_read": null,
+      "status": "unread",
+      "summary": "Silicon Valley's minimalist design aesthetic creates homogenized global spaces, erasing local character.",
+      "notes": "",
+      "topics": [
+        "Culture",
+        "Technology",
+        "Economics"
+      ],
+      "tagged_for": []
+    },
+    {
       "id": "art_1780579094598",
       "url": "https://www.vulture.com/article/what-is-a-nepotism-baby.html",
       "title": "How a Nepo Baby Is Born",
