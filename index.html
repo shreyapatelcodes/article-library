@@ -16,168 +16,640 @@
   </ul>
 </nav>
 
+<div class="add-bar">
+  <input class="add-url-input" id="add-url" type="url" placeholder="Paste a link to save it…" autocomplete="off" />
+  <span class="add-article-status" id="add-status"></span>
+</div>
+
 <div class="filters" id="filters"></div>
 
-<div class="article-list" id="article-list"></div>
+<div class="article-grid" id="article-grid">
+  <div class="empty-state" id="loading-state">
+    <div class="loading-dots"><span></span><span></span><span></span></div>
+  </div>
+</div>
+
+<!-- Detail panel -->
+<div class="detail-panel" id="detail-panel">
+  <div class="panel-handle"></div>
+  <button class="panel-close" id="panel-close">×</button>
+  <div class="panel-body" id="panel-body"></div>
+</div>
+
+<!-- Share overlay -->
+<div class="share-overlay" id="share-overlay">
+  <div class="share-panel">
+    <div class="share-title" id="share-article-title"></div>
+    <div class="share-form">
+      <label for="share-email">Send to</label>
+      <input type="email" id="share-email" placeholder="their@email.com" autocomplete="off" />
+      <input type="text" id="share-note" placeholder="Add a note… (optional)" />
+      <div id="share-tagged"></div>
+      <button class="share-send" id="share-send-btn">Open in Mail</button>
+    </div>
+  </div>
+</div>
 
 <script src="data.js"></script>
 <script>
-const articles = (typeof LIBRARY_DATA !== 'undefined' && LIBRARY_DATA.articles) ? LIBRARY_DATA.articles : [];
-
+let allArticles = [];
+let selectedId   = null;
+let shareArticleData = null;
 let activeFilters = { status: null, topic: null, person: null };
-let expandedId = null;
 
-function getAllTopics() {
+const DELETED_KEY = 'library_deleted_ids';
+const TAGS_KEY    = 'library_tags';
+const ADDED_KEY   = 'library_added_articles';
+const READS_KEY   = 'library_read_status';
+const TOPICS_KEY  = 'library_topic_overrides';
+
+// ── Storage helpers ───────────────────────────────────────────────
+
+function localDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function getDeletedIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+function getStoredTags() {
+  try { return JSON.parse(localStorage.getItem(TAGS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function getTaggedFor(id, base) {
+  return getStoredTags()[id] ?? (base.tagged_for || []);
+}
+function setTaggedFor(id, names) {
+  const s = getStoredTags(); s[id] = names;
+  localStorage.setItem(TAGS_KEY, JSON.stringify(s));
+}
+function getReadOverrides() {
+  try { return JSON.parse(localStorage.getItem(READS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function applyReadOverride(article) {
+  const ov = getReadOverrides()[article.id];
+  if (!ov) return article;
+  return { ...article, status: ov.status, date_read: ov.date_read };
+}
+function toggleRead(id) {
+  const articles = getArticles();
+  const a = articles.find(x => x.id === id);
+  if (!a) return;
+  const ov = getReadOverrides();
+  if (a.status === 'read') {
+    ov[id] = { status: 'unread', date_read: null };
+  } else {
+    ov[id] = { status: 'read', date_read: localDate() };
+  }
+  localStorage.setItem(READS_KEY, JSON.stringify(ov));
+  buildFilters();
+  renderGrid();
+  // Refresh panel if open
+  if (selectedId === id) openPanel(id);
+}
+function getTopicOverrides() {
+  try { return JSON.parse(localStorage.getItem(TOPICS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function getTopics(id, base) {
+  return getTopicOverrides()[id] ?? (base.topics || []);
+}
+function setTopics(id, topics) {
+  const ov = getTopicOverrides(); ov[id] = topics;
+  localStorage.setItem(TOPICS_KEY, JSON.stringify(ov));
+}
+
+function getArticles() {
+  const del = getDeletedIds();
+  return allArticles.filter(a => !del.has(a.id)).map(a => {
+    const r = applyReadOverride(a);
+    return { ...r, topics: getTopics(a.id, r) };
+  });
+}
+function getAddedArticles() {
+  try { return JSON.parse(localStorage.getItem(ADDED_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveAddedArticle(a) {
+  const ex = getAddedArticles(); ex.unshift(a);
+  localStorage.setItem(ADDED_KEY, JSON.stringify(ex));
+}
+
+// ── Tag colors ────────────────────────────────────────────────────
+
+const TAG_PALETTE = [
+  ['#fde8e0', '#8b3318'],  // terracotta
+  ['#e4ecff', '#2a3f8b'],  // blue
+  ['#fdf3dc', '#7a4d00'],  // amber
+  ['#e4f5e4', '#1f6b1f'],  // green
+  ['#f0e4ff', '#5c2d8b'],  // purple
+  ['#dcf5f5', '#0f6666'],  // teal
+  ['#ffe4f2', '#8b1a55'],  // pink
+  ['#edffd4', '#3a6600'],  // lime
+];
+
+function tagStyle(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const [bg, color] = TAG_PALETTE[h % TAG_PALETTE.length];
+  return `style="background:${bg};color:${color}"`;
+}
+
+function topicTag(t) {
+  return `<span class="tag topic" ${tagStyle(t)}>${t}</span>`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+function formatDate(s) {
+  if (!s) return '';
+  return new Date(s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function getAllTopics(articles) {
   const s = new Set();
   articles.forEach(a => (a.topics || []).forEach(t => s.add(t)));
   return [...s].sort();
 }
-
-function getAllPeople() {
+function getAllPeople(articles) {
   const s = new Set();
-  articles.forEach(a => (a.tagged_for || []).forEach(p => s.add(p)));
+  articles.forEach(a => getTaggedFor(a.id, a).forEach(p => s.add(p)));
   return [...s].sort();
 }
 
+// ── Filters ───────────────────────────────────────────────────────
+
 function buildFilters() {
+  const articles = getArticles();
   const container = document.getElementById('filters');
-  const topics = getAllTopics();
-  const people = getAllPeople();
-  const readCount = articles.filter(a => a.status === 'read').length;
-  const unreadCount = articles.filter(a => a.status === 'unread').length;
+  const topics  = getAllTopics(articles);
+  const people  = getAllPeople(articles);
+  const nRead   = articles.filter(a => a.status === 'read').length;
+  const nUnread = articles.filter(a => a.status === 'unread').length;
 
-  let html = '';
+  // Status pills
+  let h = statusBtn('all','All') + statusBtn('unread','To Read') + statusBtn('read','Read');
 
-  html += '<div class="filter-group"><label>Status</label>';
-  html += '<button class="filter-btn" data-filter="status" data-value="all">All</button>';
-  html += '<button class="filter-btn" data-filter="status" data-value="unread">To Read</button>';
-  html += '<button class="filter-btn" data-filter="status" data-value="read">Read</button>';
-  html += '</div>';
-
-  if (topics.length > 0) {
-    html += '<div class="filter-divider"></div>';
-    html += '<div class="filter-group"><label>Topic</label>';
-    topics.forEach(t => {
-      html += `<button class="filter-btn" data-filter="topic" data-value="${t}">${t}</button>`;
-    });
-    html += '</div>';
+  // Topic dropdown
+  if (topics.length) {
+    const activeTopic = activeFilters.topic;
+    const label = activeTopic ? activeTopic : 'Topic';
+    const activeClass = activeTopic ? ' fdd-active' : '';
+    h += `<span class="filter-sep"></span>
+    <div class="fdd" id="fdd-topic">
+      <button class="fdd-btn${activeClass}" id="fdd-topic-btn">
+        ${label} <span class="fdd-arrow">▾</span>
+        ${activeTopic ? `<span class="fdd-clear" id="fdd-topic-clear">×</span>` : ''}
+      </button>
+      <div class="fdd-menu" id="fdd-topic-menu">
+        ${topics.map(t => `<button class="fdd-item${t === activeTopic ? ' fdd-item-active' : ''}" data-val="${t}">${t}</button>`).join('')}
+      </div>
+    </div>`;
   }
 
-  if (people.length > 0) {
-    html += '<div class="filter-divider"></div>';
-    html += '<div class="filter-group"><label>For</label>';
-    people.forEach(p => {
-      html += `<button class="filter-btn" data-filter="person" data-value="${p}">${p}</button>`;
-    });
-    html += '</div>';
+  // People dropdown
+  if (people.length) {
+    const activePerson = activeFilters.person;
+    const label = activePerson ? activePerson : 'For';
+    const activeClass = activePerson ? ' fdd-active' : '';
+    h += `<span class="filter-sep"></span>
+    <div class="fdd" id="fdd-person">
+      <button class="fdd-btn${activeClass}" id="fdd-person-btn">
+        ${label} <span class="fdd-arrow">▾</span>
+        ${activePerson ? `<span class="fdd-clear" id="fdd-person-clear">×</span>` : ''}
+      </button>
+      <div class="fdd-menu" id="fdd-person-menu">
+        ${people.map(p => `<button class="fdd-item${p === activePerson ? ' fdd-item-active' : ''}" data-val="${p}">${p}</button>`).join('')}
+      </div>
+    </div>`;
   }
 
-  html += `<div class="stats">${unreadCount} to read &middot; ${readCount} read</div>`;
+  h += `<span class="stats">${nUnread} unread · ${nRead} read</span>`;
+  container.innerHTML = h;
 
-  container.innerHTML = html;
+  // Status pill events
+  container.querySelectorAll('.filter-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      const val = b.dataset.value;
+      activeFilters.status = val === 'all' ? null : val;
+      container.querySelectorAll('.filter-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      renderGrid();
+    });
+  });
 
-  container.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const filterType = btn.dataset.filter;
-      const value = btn.dataset.value;
+  // Dropdown open/close
+  ['topic','person'].forEach(type => {
+    const btn  = document.getElementById(`fdd-${type}-btn`);
+    const menu = document.getElementById(`fdd-${type}-menu`);
+    const clr  = document.getElementById(`fdd-${type}-clear`);
+    if (!btn || !menu) return;
 
-      if (filterType === 'status') {
-        activeFilters.status = (value === 'all') ? null : value;
-        container.querySelectorAll('[data-filter="status"]').forEach(b => b.classList.remove('active'));
-      } else {
-        const wasActive = btn.classList.contains('active');
-        container.querySelectorAll(`[data-filter="${filterType}"]`).forEach(b => b.classList.remove('active'));
-        if (wasActive) {
-          activeFilters[filterType] = null;
-          renderArticles();
-          return;
-        }
-        activeFilters[filterType] = value;
+    btn.addEventListener('click', e => {
+      if (e.target.id === `fdd-${type}-clear`) {
+        activeFilters[type] = null;
+        buildFilters(); renderGrid(); return;
       }
+      menu.classList.toggle('fdd-open');
+      // Close other dropdowns
+      ['topic','person'].filter(t => t !== type).forEach(t => {
+        document.getElementById(`fdd-${t}-menu`)?.classList.remove('fdd-open');
+      });
+    });
 
-      btn.classList.add('active');
-      renderArticles();
+    menu.querySelectorAll('.fdd-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const val = item.dataset.val;
+        activeFilters[type] = activeFilters[type] === val ? null : val;
+        menu.classList.remove('fdd-open');
+        buildFilters(); renderGrid();
+      });
+    });
+  });
+
+  // Close dropdowns on outside click
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.fdd')) {
+      document.querySelectorAll('.fdd-menu').forEach(m => m.classList.remove('fdd-open'));
+    }
+  }, { once: true });
+}
+
+function statusBtn(value, label) {
+  const active = (value === 'all' && !activeFilters.status) || activeFilters.status === value;
+  return `<button class="filter-btn${active ? ' active' : ''}" data-value="${value}">${label}</button>`;
+}
+
+// ── Render grid ───────────────────────────────────────────────────
+
+function renderGrid() {
+  const articles = getArticles();
+  const grid = document.getElementById('article-grid');
+  let filtered = articles;
+
+  if (activeFilters.status) filtered = filtered.filter(a => a.status === activeFilters.status);
+  if (activeFilters.topic)  filtered = filtered.filter(a => (a.topics||[]).includes(activeFilters.topic));
+  if (activeFilters.person) filtered = filtered.filter(a => getTaggedFor(a.id,a).includes(activeFilters.person));
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="background:#fff;">
+      <h2>Nothing here yet.</h2>
+      <p>Paste a link above to add your first article.</p>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(a => {
+    // Cap at 3 tags total on the card
+    const allTagItems = [
+      ...(a.topics||[]).map(t => topicTag(t)),
+      ...getTaggedFor(a.id,a).map(p => `<span class="tag person">${p}</span>`),
+    ];
+    const visibleTags = allTagItems.slice(0, 3).join('');
+    const extra = allTagItems.length > 3 ? `<span class="tag-overflow">+${allTagItems.length - 3}</span>` : '';
+    const dateClass = a.status === 'read' ? 'read' : 'unread';
+    const dateLabel = a.date_read ? `Read ${formatDate(a.date_read)}` : formatDate(a.date_saved);
+    const selected  = a.id === selectedId ? ' selected' : '';
+
+    return `<div class="article-card${selected}" data-id="${a.id}">
+      <button class="card-delete" data-id="${a.id}" title="Remove">×</button>
+      <div class="card-title">${a.title || a.url}</div>
+      ${(a.author||a.source) ? `<div class="card-meta">
+        ${a.author ? `<span class="card-meta-author">${a.author}</span>` : ''}
+        ${a.author && a.source ? `<span class="card-meta-sep"> · </span>` : ''}
+        ${a.source ? `<span class="card-meta-source">${a.source}</span>` : ''}
+      </div>` : ''}
+      ${(visibleTags||extra) ? `<div class="card-topics">${visibleTags}${extra}</div>` : ''}
+      <div class="card-date ${dateClass}">${dateLabel}</div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.article-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.card-delete')) return;
+      openPanel(card.dataset.id);
+    });
+  });
+
+  grid.querySelectorAll('.card-delete').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteArticle(btn.dataset.id);
     });
   });
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+// ── Panel ─────────────────────────────────────────────────────────
+
+function openPanel(id) {
+  const a = getArticles().find(x => x.id === id);
+  if (!a) return;
+  selectedId = id;
+
+  const dateLabel = a.date_read ? `Read ${formatDate(a.date_read)}` : formatDate(a.date_saved);
+  const titleEl   = a.url
+    ? `<a href="${a.url}" target="_blank" rel="noopener" class="panel-title-link">${a.title || a.url} ↗</a>`
+    : `<div class="panel-title-plain">${a.title || '(no title)'}</div>`;
+
+  document.getElementById('panel-body').innerHTML = `
+    ${titleEl}
+    <div class="panel-meta">
+      ${a.author ? `<span class="panel-meta-author">${a.author}</span>` : ''}
+      ${a.author && a.source ? `<span class="panel-meta-sep">·</span>` : ''}
+      ${a.source ? `<span class="panel-meta-source">${a.source}</span>` : ''}
+      ${(a.author||a.source) && dateLabel ? `<span class="panel-meta-sep">·</span>` : ''}
+      <span>${dateLabel}</span>
+    </div>
+    <div class="panel-actions">
+      <button class="panel-action-btn" id="panel-read-btn">${a.status === 'read' ? 'Mark unread' : 'Mark as read'}</button>
+      <button class="panel-action-btn" id="panel-share-btn">Share</button>
+      <button class="panel-action-btn" id="panel-delete-btn" style="color:#c0392b; margin-left:auto;">Delete</button>
+    </div>
+    <div class="panel-divider"></div>
+    ${a.summary ? `<p class="panel-summary">${a.summary}</p>` : ''}
+    ${a.notes   ? `<blockquote class="panel-notes">${a.notes}</blockquote>` : ''}
+    <div class="panel-divider"></div>
+    <div class="panel-edit-section">
+      <div class="panel-tag-label">Topics</div>
+      <div class="panel-topic-chips" id="ptopic-chips-${id}"></div>
+      <div class="panel-tag-row">
+        <input class="panel-tag-input" id="ptopic-input-${id}" placeholder="Add a topic…" autocomplete="off" />
+        <button class="panel-tag-add" id="ptopic-add-${id}">Add</button>
+      </div>
+    </div>
+    <div class="panel-divider"></div>
+    <div class="panel-edit-section">
+      <div class="panel-tag-label">Tagged for</div>
+      <div class="panel-tag-chips" id="ptag-chips-${id}"></div>
+      <div class="panel-tag-row">
+        <input class="panel-tag-input" id="ptag-input-${id}" placeholder="Add a name…" autocomplete="off" />
+        <button class="panel-tag-add" id="ptag-add-${id}">Add</button>
+      </div>
+    </div>
+  `;
+
+  renderTopicChips(id, a);
+  bindTopicInputs(id, a);
+  renderTagChips(id, a);
+  bindTagInputs(id, a);
+
+  document.getElementById('panel-read-btn').addEventListener('click', () => toggleRead(id));
+  document.getElementById('panel-share-btn').addEventListener('click', () => openShare(id));
+  document.getElementById('panel-delete-btn').addEventListener('click', () => { closePanel(); deleteArticle(id); });
+
+  document.getElementById('detail-panel').classList.add('open');
+  document.getElementById('article-grid').classList.add('panel-open');
+
+  // Highlight selected card
+  document.querySelectorAll('.article-card').forEach(c => c.classList.toggle('selected', c.dataset.id === id));
 }
 
-function toggleArticle(id, event) {
-  if (event.target.closest('.article-link')) return;
-  expandedId = (expandedId === id) ? null : id;
-  renderArticles();
+function closePanel() {
+  document.getElementById('detail-panel').classList.remove('open');
+  document.getElementById('article-grid').classList.remove('panel-open');
+  document.querySelectorAll('.article-card.selected').forEach(c => c.classList.remove('selected'));
+  selectedId = null;
 }
 
-function renderArticles() {
-  const container = document.getElementById('article-list');
-  let filtered = articles;
+document.getElementById('panel-close').addEventListener('click', closePanel);
 
-  if (activeFilters.status) {
-    filtered = filtered.filter(a => a.status === activeFilters.status);
-  }
-  if (activeFilters.topic) {
-    filtered = filtered.filter(a => (a.topics || []).includes(activeFilters.topic));
-  }
-  if (activeFilters.person) {
-    filtered = filtered.filter(a => (a.tagged_for || []).includes(activeFilters.person));
-  }
+// ── Topic edit helpers ────────────────────────────────────────────
 
-  if (filtered.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <h2>No articles yet</h2>
-        <p>Save articles through your email agent to start building your library.</p>
-      </div>`;
-    return;
-  }
-
-  container.innerHTML = filtered.map(a => {
-    const isExpanded = expandedId === a.id;
-
-    const personTags = (a.tagged_for || []).map(p =>
-      `<span class="tag person">${p}</span>`
-    ).join('');
-
-    const topicTags = (a.topics || []).map(t =>
-      `<span class="tag topic">${t}</span>`
-    ).join('');
-
-    const readInfo = a.date_read ? `<span class="read-marker">Read ${formatDate(a.date_read)}</span>` : '';
-
-    const meta = [a.author, a.source].filter(Boolean).join(' · ');
-
-    let expanded = '';
-    if (isExpanded) {
-      expanded = `
-        <div class="article-expanded">
-          ${meta ? `<div class="expanded-meta">${meta}</div>` : ''}
-          ${a.summary ? `<div class="expanded-summary">${a.summary}</div>` : ''}
-          ${a.notes ? `<div class="expanded-notes">${a.notes}</div>` : ''}
-          <a class="article-link" href="${a.url}" target="_blank">Open article</a>
-        </div>`;
-    }
-
-    return `
-      <div class="article-item ${isExpanded ? 'expanded' : ''}" onclick="toggleArticle('${a.id}', event)">
-        <div class="article-row">
-          <span class="status-dot ${a.status}"></span>
-          <span class="article-title">${a.title || a.url}</span>
-          <span class="article-tags">${topicTags}${personTags}</span>
-          <span class="article-date">${readInfo || formatDate(a.date_saved)}</span>
-        </div>
-        ${expanded}
-      </div>`;
+function renderTopicChips(id, base) {
+  const topics = getTopics(id, base);
+  const el = document.getElementById(`ptopic-chips-${id}`);
+  if (!el) return;
+  el.innerHTML = topics.map((t, i) => {
+    const [bg, color] = TAG_PALETTE[(() => { let h=0; for(let c of t) h=(h*31+c.charCodeAt(0))>>>0; return h; })() % TAG_PALETTE.length];
+    return `<span class="panel-tag-chip" style="background:${bg};color:${color}">
+      ${t}<button class="panel-topic-remove" data-index="${i}">×</button>
+    </span>`;
   }).join('');
+  el.querySelectorAll('.panel-topic-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const t = getTopics(id, base);
+      t.splice(Number(btn.dataset.index), 1);
+      setTopics(id, t);
+      renderTopicChips(id, base);
+      buildFilters(); renderGrid();
+    });
+  });
 }
 
-buildFilters();
-renderArticles();
+function bindTopicInputs(id, base) {
+  function addTopic() {
+    const inp = document.getElementById(`ptopic-input-${id}`);
+    const name = inp?.value.trim();
+    if (!name) return;
+    const t = getTopics(id, base);
+    if (!t.includes(name)) { t.push(name); setTopics(id, t); }
+    if (inp) inp.value = '';
+    renderTopicChips(id, base);
+    buildFilters(); renderGrid();
+  }
+  document.getElementById(`ptopic-add-${id}`)?.addEventListener('click', addTopic);
+  document.getElementById(`ptopic-input-${id}`)?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addTopic(); }
+  });
+}
+
+// ── Tag helpers ───────────────────────────────────────────────────
+
+function renderTagChips(id, base) {
+  const names = getTaggedFor(id, base);
+  const el = document.getElementById(`ptag-chips-${id}`);
+  if (!el) return;
+  el.innerHTML = names.map((p, i) => `
+    <span class="panel-tag-chip">
+      ${p}<button class="panel-tag-remove" data-index="${i}">×</button>
+    </span>`).join('');
+  el.querySelectorAll('.panel-tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = getTaggedFor(id, base);
+      n.splice(Number(btn.dataset.index), 1);
+      setTaggedFor(id, n);
+      renderTagChips(id, base);
+      buildFilters();
+      renderGrid();
+    });
+  });
+}
+
+function bindTagInputs(id, base) {
+  function addTag() {
+    const inp = document.getElementById(`ptag-input-${id}`);
+    const name = inp?.value.trim();
+    if (!name) return;
+    const n = getTaggedFor(id, base);
+    if (!n.includes(name)) { n.push(name); setTaggedFor(id, n); }
+    if (inp) inp.value = '';
+    renderTagChips(id, base);
+    buildFilters();
+    renderGrid();
+  }
+  document.getElementById(`ptag-add-${id}`)?.addEventListener('click', addTag);
+  document.getElementById(`ptag-input-${id}`)?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+  });
+}
+
+// ── Delete ────────────────────────────────────────────────────────
+
+function deleteArticle(id) {
+  const del = getDeletedIds(); del.add(id);
+  localStorage.setItem(DELETED_KEY, JSON.stringify([...del]));
+  buildFilters();
+  renderGrid();
+}
+
+// ── Share ─────────────────────────────────────────────────────────
+
+function openShare(id) {
+  const a = getArticles().find(x => x.id === id);
+  shareArticleData = a || null;
+  if (!a) return;
+  document.getElementById('share-article-title').textContent = `"${a.title || a.url}"`;
+  document.getElementById('share-email').value = '';
+  document.getElementById('share-note').value = '';
+  const tagged = getTaggedFor(a.id, a);
+  const el = document.getElementById('share-tagged');
+  if (tagged.length) {
+    el.innerHTML = `<div class="share-tagged-label">Tagged for</div>` +
+      tagged.map(p => `<button class="tagged-quick" data-name="${p}">${p}</button>`).join('');
+    el.querySelectorAll('.tagged-quick').forEach(b => {
+      b.addEventListener('click', () => {
+        document.getElementById('share-email').placeholder = `${b.dataset.name}'s email`;
+        document.getElementById('share-email').focus();
+      });
+    });
+  } else { el.innerHTML = ''; }
+  document.getElementById('share-overlay').classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('share-email').focus(), 60);
+}
+
+function closeShare() {
+  document.getElementById('share-overlay').classList.remove('visible');
+  document.body.style.overflow = '';
+  shareArticleData = null;
+}
+
+document.getElementById('share-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeShare();
+});
+
+document.getElementById('share-send-btn').addEventListener('click', () => {
+  if (!shareArticleData) return;
+  const email = document.getElementById('share-email').value.trim();
+  const note  = document.getElementById('share-note').value.trim();
+  const title = shareArticleData.title || shareArticleData.url;
+  const parts = [];
+  if (note) parts.push(note, '');
+  parts.push(title, shareArticleData.url);
+  if (shareArticleData.summary) parts.push('', shareArticleData.summary);
+  const link = document.createElement('a');
+  link.href = `mailto:${email}?subject=${encodeURIComponent(`"${title}"`)}&body=${encodeURIComponent(parts.join('\n'))}`;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('share-overlay').classList.contains('visible')) closeShare();
+    else closePanel();
+  }
+});
+
+// ── Add article ───────────────────────────────────────────────────
+
+document.getElementById('add-url').addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  const input  = document.getElementById('add-url');
+  const status = document.getElementById('add-status');
+  const url = input.value.trim();
+  if (!url) return;
+  input.disabled = true;
+  status.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const article = {
+      id: `local_${Date.now()}`,
+      date_saved: localDate(),
+      date_read: null, status: 'unread', notes: '', tagged_for: [],
+      ...data,
+    };
+    saveAddedArticle(article);
+    allArticles.unshift(article);
+    input.value = '';
+    status.textContent = '';
+    buildFilters();
+    renderGrid();
+  } catch {
+    status.textContent = 'Could not fetch that link.';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────
+
+async function init() {
+  try {
+    const res = await fetch('/api/articles');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.length > 0) allArticles = data;
+    }
+  } catch {}
+  if (allArticles.length === 0 && typeof LIBRARY_DATA !== 'undefined') {
+    allArticles = LIBRARY_DATA.articles ?? [];
+  }
+  const added = getAddedArticles();
+  const ids = new Set(allArticles.map(a => a.id));
+  allArticles = [...added.filter(a => !ids.has(a.id)), ...allArticles];
+  buildFilters();
+  renderGrid();
+}
+
+init();
 </script>
+
+<style>
+/* Loading dots */
+.loading-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 0;
+  grid-column: 1 / -1;
+}
+.loading-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ccc;
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dot-pulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1;   }
+}
+</style>
 
 </body>
 </html>
