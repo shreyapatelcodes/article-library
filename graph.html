@@ -28,6 +28,34 @@
 <script src="data.js"></script>
 <script>
 let articles = [];
+
+// Mirror the same localStorage keys as index.html
+function getLocallyAdded() {
+  try { return JSON.parse(localStorage.getItem('library_added_articles') || '[]'); }
+  catch { return []; }
+}
+function getDeletedIds() {
+  try { return new Set(JSON.parse(localStorage.getItem('library_deleted_ids') || '[]')); }
+  catch { return new Set(); }
+}
+function getReadOverrides() {
+  try { return JSON.parse(localStorage.getItem('library_read_status') || '{}'); }
+  catch { return {}; }
+}
+function getTopicOverrides() {
+  try { return JSON.parse(localStorage.getItem('library_topic_overrides') || '{}'); }
+  catch { return {}; }
+}
+function applyOverrides(article) {
+  const r = getReadOverrides()[article.id];
+  const t = getTopicOverrides()[article.id];
+  return {
+    ...article,
+    ...(r ? { status: r.status, date_read: r.date_read } : {}),
+    topics: t ?? article.topics ?? [],
+  };
+}
+
 async function loadData() {
   try {
     const res = await fetch('/api/articles');
@@ -39,6 +67,16 @@ async function loadData() {
   if (articles.length === 0 && typeof LIBRARY_DATA !== 'undefined') {
     articles = LIBRARY_DATA.articles ?? [];
   }
+
+  // Merge localStorage additions and apply local overrides
+  const deleted = getDeletedIds();
+  const added   = getLocallyAdded();
+  const existingIds = new Set(articles.map(a => a.id));
+  articles = [
+    ...added.filter(a => !existingIds.has(a.id) && !deleted.has(a.id)),
+    ...articles.filter(a => !deleted.has(a.id)),
+  ].map(applyOverrides);
+
   renderGraph();
 }
 loadData();
