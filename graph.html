@@ -21,7 +21,8 @@
   <div class="tooltip" id="tooltip"></div>
   <div class="graph-legend">
     <div class="legend-item"><div class="legend-dot topic"></div> Topic</div>
-    <div class="legend-item"><div class="legend-dot article"></div> Article</div>
+    <div class="legend-item"><div class="legend-dot article"></div> Unread</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#2e8b57"></div> Read</div>
   </div>
 </div>
 
@@ -196,7 +197,7 @@ function renderGraph() {
       if (d.type === 'topic') return 3.5 + (d.count || 1) * 1.2;
       return 3;
     })
-    .attr('fill', d => d.type === 'topic' ? '#1e2d4a' : '#b8892a')
+    .attr('fill', d => d.type === 'topic' ? '#1e2d4a' : (d.data?.status === 'read' ? '#2e8b57' : '#b8892a'))
     .attr('stroke', 'none');
 
   // Labels
