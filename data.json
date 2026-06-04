@@ -1,6 +1,23 @@
 {
   "articles": [
     {
+      "id": "art_1780579094598",
+      "url": "https://www.vulture.com/article/what-is-a-nepotism-baby.html",
+      "title": "How a Nepo Baby Is Born",
+      "author": "Nate Jones",
+      "source": "Vulture",
+      "date_saved": "2026-06-04",
+      "date_read": null,
+      "status": "unread",
+      "summary": "Examining how the internet defined celebrity children of famous parents in 2022.",
+      "notes": "",
+      "topics": [
+        "Culture",
+        "Creativity"
+      ],
+      "tagged_for": []
+    },
+    {
       "id": "art_1780579056259",
       "url": "https://www.vulture.com/article/social-media-feeds-chaotic-good-projects-clipping.html",
       "title": "The Feed Is Fake",
