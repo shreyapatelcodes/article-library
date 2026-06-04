@@ -57,6 +57,21 @@ let selectedId   = null;
 let shareArticleData = null;
 let activeFilters = { status: null, topic: null, person: null };
 
+// ── GitHub sync (debounced) ───────────────────────────────────────
+let syncTimer = null;
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => {
+    try {
+      await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articles: getArticles() }),
+      });
+    } catch {}
+  }, 10000);
+}
+
 const DELETED_KEY = 'library_deleted_ids';
 const TAGS_KEY    = 'library_tags';
 const ADDED_KEY   = 'library_added_articles';
@@ -84,6 +99,7 @@ function getTaggedFor(id, base) {
 function setTaggedFor(id, names) {
   const s = getStoredTags(); s[id] = names;
   localStorage.setItem(TAGS_KEY, JSON.stringify(s));
+  scheduleSync();
 }
 function getReadOverrides() {
   try { return JSON.parse(localStorage.getItem(READS_KEY) || '{}'); }
@@ -105,6 +121,7 @@ function toggleRead(id) {
     ov[id] = { status: 'read', date_read: localDate() };
   }
   localStorage.setItem(READS_KEY, JSON.stringify(ov));
+  scheduleSync();
   buildFilters();
   renderGrid();
   // Refresh panel if open
@@ -120,6 +137,7 @@ function getTopics(id, base) {
 function setTopics(id, topics) {
   const ov = getTopicOverrides(); ov[id] = topics;
   localStorage.setItem(TOPICS_KEY, JSON.stringify(ov));
+  scheduleSync();
 }
 
 function getArticles() {
@@ -500,6 +518,7 @@ function bindTagInputs(id, base) {
 function deleteArticle(id) {
   const del = getDeletedIds(); del.add(id);
   localStorage.setItem(DELETED_KEY, JSON.stringify([...del]));
+  scheduleSync();
   buildFilters();
   renderGrid();
 }
