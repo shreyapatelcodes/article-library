@@ -6,7 +6,7 @@
   --text:         #111111;
   --text-meta:    #7a7470;
   --text-light:   #b8b0a8;
-  --unread:       #4a9460;
+  --unread:       #b8892a;
   --read:         #2e8b57;
   --person-bg:    #e6f0eb;
   --person-text:  #2a5038;
@@ -792,7 +792,7 @@ nav {
 
 .legend-item { display: flex; align-items: center; gap: 0.35rem; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
-.legend-dot.topic { background: #1e2d4a; }
+.legend-dot.topic { background: #111111; }
 .legend-dot.article { background: var(--unread); }
 
 /* ── Responsive ──────────────────────────────────────────────────── */
