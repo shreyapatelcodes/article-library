@@ -1,6 +1,24 @@
 {
   "articles": [
     {
+      "id": "art_1780579056259",
+      "url": "https://www.vulture.com/article/social-media-feeds-chaotic-good-projects-clipping.html",
+      "title": "The Feed Is Fake",
+      "author": "Lane Brown",
+      "source": "Vulture",
+      "date_saved": "2026-06-04",
+      "date_read": null,
+      "status": "unread",
+      "summary": "Social media viral moments are engineered through coordinated stealth marketing campaigns.",
+      "notes": "",
+      "topics": [
+        "Technology",
+        "Culture",
+        "Economics"
+      ],
+      "tagged_for": []
+    },
+    {
       "id": "art_1780578942733",
       "url": "https://archive.is/20250727133251/https://aeon.co/essays/contemporary-art-is-made-out-of-rules-that-mobilise-us-to-act",
       "title": "Contemporary Art is Made Out of Rules That Mobilise Us to Act",
