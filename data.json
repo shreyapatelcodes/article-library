@@ -1,6 +1,24 @@
 {
   "articles": [
     {
+      "id": "art_1780578632579",
+      "url": "https://www.startingfromnix.com/p/new-york-in-spring",
+      "title": "New York in Spring",
+      "author": "Nix",
+      "source": "Starting From Nix",
+      "date_saved": "2026-06-04",
+      "date_read": null,
+      "status": "unread",
+      "summary": "Personal essay exploring New York City's transformative power and the courage required to embrace life's uncertainties.",
+      "notes": "",
+      "topics": [
+        "Culture",
+        "Creativity",
+        "Travel"
+      ],
+      "tagged_for": []
+    },
+    {
       "id": "demo0001",
       "url": "https://example.com/article-1",
       "title": "The Case for Slowing Down",
@@ -11,8 +29,14 @@
       "status": "read",
       "summary": "An argument for why the cult of productivity misses the point. Real creative work requires unstructured time, and the pressure to optimize every hour makes us worse at the things that matter.",
       "notes": "This really resonated. The bit about 'productive leisure' being an oxymoron stuck with me.",
-      "topics": ["Productivity", "Creativity", "Culture"],
-      "tagged_for": ["Saffron"]
+      "topics": [
+        "Productivity",
+        "Creativity",
+        "Culture"
+      ],
+      "tagged_for": [
+        "Saffron"
+      ]
     },
     {
       "id": "demo0002",
@@ -25,7 +49,11 @@
       "status": "unread",
       "summary": "How urban design either fosters or destroys the possibility of meaningful encounters with people unlike ourselves. Draws on Jane Jacobs and her own experience in Harlem.",
       "notes": "",
-      "topics": ["Cities", "Culture", "Community"],
+      "topics": [
+        "Cities",
+        "Culture",
+        "Community"
+      ],
       "tagged_for": []
     },
     {
@@ -39,8 +67,14 @@
       "status": "unread",
       "summary": "Why adult friendships are hard to maintain, backed by research on how our social networks shrink after 25. Proposes that the real issue is not time but a lack of recurring unplanned interaction.",
       "notes": "The 'recurring unplanned interaction' framework is brilliant. Want to think about this more.",
-      "topics": ["Relationships", "Community", "Psychology"],
-      "tagged_for": ["Tristan"]
+      "topics": [
+        "Relationships",
+        "Community",
+        "Psychology"
+      ],
+      "tagged_for": [
+        "Tristan"
+      ]
     },
     {
       "id": "demo0004",
@@ -53,7 +87,11 @@
       "status": "read",
       "summary": "How recommendation algorithms are flattening aesthetic preferences into a global average. The paradox: more choice leads to more sameness. Makes a case for human curation as a form of resistance.",
       "notes": "",
-      "topics": ["AI", "Culture", "Taste"],
+      "topics": [
+        "AI",
+        "Culture",
+        "Taste"
+      ],
       "tagged_for": []
     },
     {
@@ -67,7 +105,11 @@
       "status": "unread",
       "summary": "A philosophical look at how the shift from maker culture to consumer culture changed our relationship with objects, attention, and meaning. References Ivan Illich and Matthew Crawford.",
       "notes": "This connects to the Kyle Chayka piece about taste. Both are about passivity vs. agency.",
-      "topics": ["Creativity", "Culture", "Philosophy"],
+      "topics": [
+        "Creativity",
+        "Culture",
+        "Philosophy"
+      ],
       "tagged_for": []
     }
   ]
