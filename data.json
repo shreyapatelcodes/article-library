@@ -13,7 +13,8 @@
       "notes": "",
       "topics": [
         "Technology",
-        "Economics"
+        "Economics",
+        "Aesthetics"
       ],
       "tagged_for": []
     },
@@ -30,7 +31,8 @@
       "notes": "",
       "topics": [
         "Culture",
-        "Creativity"
+        "Creativity",
+        "Film"
       ],
       "tagged_for": []
     },
@@ -47,7 +49,6 @@
       "notes": "",
       "topics": [
         "Technology",
-        "Culture",
         "Economics"
       ],
       "tagged_for": []
@@ -84,7 +85,7 @@
       "topics": [
         "Art",
         "Creativity",
-        "Culture"
+        "Aesthetics"
       ],
       "tagged_for": []
     },
@@ -151,7 +152,6 @@
       "summary": "Personal life wisdom and practical reminders collected over 29 years.",
       "notes": "",
       "topics": [
-        "Philosophy",
         "Productivity",
         "Relationships"
       ],
@@ -164,8 +164,8 @@
       "author": "Scott Alexander",
       "source": "Astral Codex Ten",
       "date_saved": "2026-06-04",
-      "date_read": null,
-      "status": "unread",
+      "date_read": "2026-06-04",
+      "status": "read",
       "summary": "A man named John Rawls seeks aid from a foundation and undergoes mysterious experimental screening.",
       "notes": "",
       "topics": [
@@ -185,9 +185,7 @@
       "summary": "Annual self-reflection exercise using 10 simple questions to review the past year meaningfully.",
       "notes": "",
       "topics": [
-        "Productivity",
-        "Psychology",
-        "Relationships"
+        "Productivity"
       ],
       "tagged_for": []
     },
@@ -204,7 +202,6 @@
       "notes": "",
       "topics": [
         "Technology",
-        "Culture",
         "Creativity"
       ],
       "tagged_for": []
@@ -216,8 +213,8 @@
       "author": "Will Manidis",
       "source": "Minutes",
       "date_saved": "2026-06-04",
-      "date_read": null,
-      "status": "unread",
+      "date_read": "2026-06-04",
+      "status": "read",
       "summary": "Founder worship mirrors medieval saint hagiography, replacing spiritual virtue with extreme work ethic.",
       "notes": "",
       "topics": [
