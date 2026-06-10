@@ -1,15 +1,15 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { Redis } from '@upstash/redis'
+import { getUserId } from '../lib/auth.js'
 
-export default function handler(req, res) {
-  if (req.method !== 'GET') return res.status(405).end();
-  try {
-    const raw = readFileSync(join(process.cwd(), 'data.json'), 'utf-8');
-    const { articles } = JSON.parse(raw);
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json(articles || []);
-  } catch (err) {
-    console.error('data.json read error:', err.message);
-    return res.status(200).json([]);
-  }
+const redis = Redis.fromEnv()
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).end()
+
+  const userId = await getUserId(req)
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+  const articles = await redis.get(`articles:${userId}`) ?? []
+  res.setHeader('Cache-Control', 'no-store')
+  return res.status(200).json(Array.isArray(articles) ? articles : [])
 }

@@ -9,12 +9,22 @@
 </head>
 <body>
 
+<!-- Auth gate — hidden after sign-in -->
+<div class="auth-overlay" id="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">Library</div>
+    <p class="auth-tagline">Your personal reading list, anywhere.</p>
+    <button class="auth-btn" id="auth-sign-in-btn">Sign in</button>
+  </div>
+</div>
+
 <nav>
   <div class="logo">Library</div>
   <ul class="nav-links">
     <li><a href="index.html">Reading List</a></li>
     <li><a href="graph.html" class="active">Knowledge Graph</a></li>
   </ul>
+  <div class="nav-user" id="nav-user"></div>
 </nav>
 
 <div class="graph-container" id="graph-container">
@@ -26,61 +36,32 @@
   </div>
 </div>
 
-<script src="data.js"></script>
 <script>
 let articles = [];
 
-// Mirror the same localStorage keys as index.html
-function getLocallyAdded() {
-  try { return JSON.parse(localStorage.getItem('library_added_articles') || '[]'); }
-  catch { return []; }
+async function getToken() {
+  try { return await window.__clerk?.session?.getToken() ?? null; }
+  catch { return null; }
 }
-function getDeletedIds() {
-  try { return new Set(JSON.parse(localStorage.getItem('library_deleted_ids') || '[]')); }
-  catch { return new Set(); }
-}
-function getReadOverrides() {
-  try { return JSON.parse(localStorage.getItem('library_read_status') || '{}'); }
-  catch { return {}; }
-}
-function getTopicOverrides() {
-  try { return JSON.parse(localStorage.getItem('library_topic_overrides') || '{}'); }
-  catch { return {}; }
-}
-function applyOverrides(article) {
-  const r = getReadOverrides()[article.id];
-  const t = getTopicOverrides()[article.id];
-  return {
-    ...article,
-    ...(r ? { status: r.status, date_read: r.date_read } : {}),
-    topics: t ?? article.topics ?? [],
-  };
+
+function updateNavUser(user) {
+  const name = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Account';
+  document.getElementById('nav-user').innerHTML = `
+    <span class="nav-user-name">${name}</span>
+    <button class="nav-signout-btn" onclick="window.__clerk.signOut().then(()=>location.reload())">Sign out</button>
+  `;
 }
 
 async function loadData() {
   try {
-    const res = await fetch('/api/articles');
-    if (res.ok) {
-      const data = await res.json();
-      if (data.length > 0) articles = data;
-    }
+    const token = await getToken();
+    const res = await fetch('/api/articles', {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    });
+    if (res.ok) articles = await res.json();
   } catch {}
-  if (articles.length === 0 && typeof LIBRARY_DATA !== 'undefined') {
-    articles = LIBRARY_DATA.articles ?? [];
-  }
-
-  // Merge localStorage additions and apply local overrides
-  const deleted = getDeletedIds();
-  const added   = getLocallyAdded();
-  const existingIds = new Set(articles.map(a => a.id));
-  articles = [
-    ...added.filter(a => !existingIds.has(a.id) && !deleted.has(a.id)),
-    ...articles.filter(a => !deleted.has(a.id)),
-  ].map(applyOverrides);
-
   renderGraph();
 }
-loadData();
 
 function buildGraphData() {
   const nodes = [];
@@ -95,12 +76,7 @@ function buildGraphData() {
   });
 
   articles.forEach(a => {
-    nodes.push({
-      id: 'article:' + a.id,
-      label: a.title || a.url,
-      type: 'article',
-      data: a,
-    });
+    nodes.push({ id: 'article:' + a.id, label: a.title || a.url, type: 'article', data: a });
     (a.topics || []).forEach(t => {
       links.push({ source: 'article:' + a.id, target: 'topic:' + t, type: 'article_topic' });
     });
@@ -114,12 +90,7 @@ function buildGraphData() {
         return t.includes(topicArr[i]) && t.includes(topicArr[j]);
       }).length;
       if (shared > 0) {
-        links.push({
-          source: 'topic:' + topicArr[i],
-          target: 'topic:' + topicArr[j],
-          type: 'topic_topic',
-          weight: shared,
-        });
+        links.push({ source: 'topic:' + topicArr[i], target: 'topic:' + topicArr[j], type: 'topic_topic', weight: shared });
       }
     }
   }
@@ -144,71 +115,41 @@ function renderGraph() {
     return;
   }
 
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('width', width)
-    .attr('height', height);
-
+  const svg = d3.select(container).append('svg').attr('width', width).attr('height', height);
   const g = svg.append('g');
 
-  svg.call(d3.zoom()
-    .scaleExtent([0.2, 4])
-    .on('zoom', (event) => g.attr('transform', event.transform))
-  );
+  svg.call(d3.zoom().scaleExtent([0.2, 4]).on('zoom', (event) => g.attr('transform', event.transform)));
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(d => {
-      if (d.type === 'topic_topic') return 160;
-      return 100;
-    }))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'topic_topic' ? 160 : 100))
     .force('charge', d3.forceManyBody().strength(d => d.type === 'topic' ? -400 : -80))
     .force('x', d3.forceX(d => d.type === 'topic' ? width * 0.28 : width * 0.65).strength(0.12))
     .force('y', d3.forceY(height / 2).strength(0.06))
     .force('collision', d3.forceCollide().radius(d => d.type === 'topic' ? 30 : 15));
 
-  // Draw links
-  const link = g.append('g')
-    .selectAll('line')
-    .data(links)
-    .enter().append('line')
+  const link = g.append('g').selectAll('line').data(links).enter().append('line')
     .attr('stroke', d => d.type === 'topic_topic' ? '#ccc' : '#ddd')
     .attr('stroke-width', d => d.type === 'topic_topic' ? 0.75 : 0.5)
     .attr('stroke-dasharray', d => d.type === 'topic_topic' ? '3 3' : 'none');
 
-  // Draw nodes
-  const nodeG = g.append('g')
-    .selectAll('g')
-    .data(nodes)
-    .enter().append('g')
+  const nodeG = g.append('g').selectAll('g').data(nodes).enter().append('g')
     .style('cursor', 'pointer')
     .call(d3.drag()
-      .on('start', (event, d) => {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
-      })
+      .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
       .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
-      .on('end', (event, d) => {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null; d.fy = null;
-      })
+      .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
     );
 
   nodeG.append('circle')
-    .attr('r', d => {
-      if (d.type === 'topic') return 3.5 + (d.count || 1) * 1.2;
-      return 3;
-    })
+    .attr('r', d => d.type === 'topic' ? 3.5 + (d.count || 1) * 1.2 : 3)
     .attr('fill', d => d.type === 'topic' ? '#111111' : (d.data?.status === 'read' ? '#2e8b57' : '#b8892a'))
     .attr('stroke', 'none');
 
-  // Labels
   nodeG.append('text')
     .attr('dx', d => d.type === 'topic' ? 0 : 8)
     .attr('dy', d => d.type === 'topic' ? -(8 + (d.count || 1) * 1.2) : 3)
     .attr('text-anchor', d => d.type === 'topic' ? 'middle' : 'start')
-    .attr('font-family', d => d.type === 'topic'
-      ? "'Georgia', 'Times New Roman', serif"
-      : "'Georgia', 'Times New Roman', serif")
+    .attr('font-family', "'Georgia', 'Times New Roman', serif")
     .attr('font-size', d => d.type === 'topic' ? '12px' : '9.5px')
     .attr('font-style', d => d.type === 'article' ? 'italic' : 'normal')
     .attr('fill', d => d.type === 'topic' ? '#111111' : '#9e9181')
@@ -219,13 +160,10 @@ function renderGraph() {
       return label;
     });
 
-  // Hover effects
   nodeG.on('mouseover', function(event, d) {
-    d3.select(this).select('circle')
-      .transition().duration(150)
+    d3.select(this).select('circle').transition().duration(150)
       .attr('r', d.type === 'topic' ? 5 + (d.count || 1) * 1.2 : 4.5);
 
-    // Highlight connected links
     link.attr('stroke', l =>
       (l.source === d || l.target === d) ? '#1a1a1a' : (l.type === 'topic_topic' ? '#ccc' : '#ddd')
     ).attr('stroke-width', l =>
@@ -235,47 +173,33 @@ function renderGraph() {
     if (d.type === 'article' && d.data) {
       const a = d.data;
       const meta = [a.author, a.source, a.date_saved].filter(Boolean).join(' · ');
-      tooltip.innerHTML = `
-        <h3>${a.title || a.url}</h3>
-        <div class="meta">${meta}</div>
-        ${a.summary ? `<div class="summary">${a.summary}</div>` : ''}
-      `;
+      tooltip.innerHTML = `<h3>${a.title || a.url}</h3><div class="meta">${meta}</div>${a.summary ? `<div class="summary">${a.summary}</div>` : ''}`;
       tooltip.classList.add('visible');
     } else if (d.type === 'topic') {
       const topicArticles = articles.filter(a => (a.topics || []).includes(d.label));
       const titles = topicArticles.map(a => a.title || a.url).slice(0, 5);
-      tooltip.innerHTML = `
-        <h3>${d.label}</h3>
-        <div class="meta">${topicArticles.length} article${topicArticles.length !== 1 ? 's' : ''}</div>
-        <div class="summary">${titles.join('<br>')}</div>
-      `;
+      tooltip.innerHTML = `<h3>${d.label}</h3><div class="meta">${topicArticles.length} article${topicArticles.length !== 1 ? 's' : ''}</div><div class="summary">${titles.join('<br>')}</div>`;
       tooltip.classList.add('visible');
     }
   })
   .on('mousemove', (event) => {
     tooltip.style.left = (event.pageX + 15) + 'px';
-    tooltip.style.top = (event.pageY - 10) + 'px';
+    tooltip.style.top  = (event.pageY - 10) + 'px';
   })
   .on('mouseout', function(event, d) {
-    d3.select(this).select('circle')
-      .transition().duration(150)
+    d3.select(this).select('circle').transition().duration(150)
       .attr('r', d.type === 'topic' ? 3.5 + (d.count || 1) * 1.2 : 3);
-
     link.attr('stroke', l => l.type === 'topic_topic' ? '#ccc' : '#ddd')
-      .attr('stroke-width', l => l.type === 'topic_topic' ? 0.75 : 0.5);
-
+        .attr('stroke-width', l => l.type === 'topic_topic' ? 0.75 : 0.5);
     tooltip.classList.remove('visible');
   })
   .on('click', (event, d) => {
-    if (d.type === 'article' && d.data && d.data.url) {
-      window.open(d.data.url, '_blank');
-    }
+    if (d.type === 'article' && d.data?.url) window.open(d.data.url, '_blank');
   });
 
   simulation.on('tick', () => {
-    link
-      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 }
@@ -284,6 +208,50 @@ window.addEventListener('resize', () => {
   document.querySelector('#graph-container svg')?.remove();
   renderGraph();
 });
+
+// ── Clerk init ────────────────────────────────────────────────────
+async function init() {
+  let publishableKey = '';
+  try {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    publishableKey = cfg.publishableKey || '';
+  } catch {}
+
+  if (!publishableKey) { loadData(); return; }
+
+  try {
+    const parts = publishableKey.split('_');
+    const b64   = parts[parts.length - 1];
+    const host  = atob(b64).replace(/\$$/, '');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://${host}/npm/@clerk/clerk-js@latest/dist/clerk.browser.js`;
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  } catch { loadData(); return; }
+
+  const clerk = new window.Clerk(publishableKey);
+  await clerk.load();
+  window.__clerk = clerk;
+
+  if (!clerk.user) {
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('auth-sign-in-btn').addEventListener('click', () => clerk.openSignIn());
+    clerk.addListener(({ user }) => {
+      if (user) {
+        document.getElementById('auth-overlay').style.display = 'none';
+        updateNavUser(user);
+        loadData();
+      }
+    });
+  } else {
+    updateNavUser(clerk.user);
+    loadData();
+  }
+}
+
+init();
 </script>
 
 </body>

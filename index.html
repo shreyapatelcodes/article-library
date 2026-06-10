@@ -8,12 +8,22 @@
 </head>
 <body>
 
+<!-- Auth gate — hidden after sign-in -->
+<div class="auth-overlay" id="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">Library</div>
+    <p class="auth-tagline">Your personal reading list, anywhere.</p>
+    <button class="auth-btn" id="auth-sign-in-btn">Sign in</button>
+  </div>
+</div>
+
 <nav>
   <div class="logo">Library</div>
   <ul class="nav-links">
     <li><a href="index.html" class="active">Reading List</a></li>
     <li><a href="graph.html">Knowledge Graph</a></li>
   </ul>
+  <div class="nav-user" id="nav-user"></div>
 </nav>
 
 <div class="add-bar">
@@ -50,123 +60,90 @@
   </div>
 </div>
 
-<script src="data.js"></script>
 <script>
+// ── State ────────────────────────────────────────────────────────
 let allArticles = [];
 let selectedId   = null;
 let shareArticleData = null;
 let activeFilters = { status: null, topic: null, person: null };
 
-// ── GitHub sync (debounced) ───────────────────────────────────────
+// ── Auth helpers ──────────────────────────────────────────────────
+async function getToken() {
+  try { return await window.__clerk?.session?.getToken() ?? null; }
+  catch { return null; }
+}
+
+async function authFetch(url, options = {}) {
+  const token = await getToken();
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+// ── Sync (debounced) ──────────────────────────────────────────────
 let syncTimer = null;
 function scheduleSync() {
   clearTimeout(syncTimer);
   syncTimer = setTimeout(async () => {
     try {
-      await fetch('/api/sync', {
+      await authFetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ articles: getArticles() }),
+        body: JSON.stringify({ articles: allArticles }),
       });
     } catch {}
-  }, 10000);
+  }, 1500);
 }
 
-const DELETED_KEY = 'library_deleted_ids';
-const TAGS_KEY    = 'library_tags';
-const ADDED_KEY   = 'library_added_articles';
-const READS_KEY   = 'library_read_status';
-const TOPICS_KEY  = 'library_topic_overrides';
-
-// ── Storage helpers ───────────────────────────────────────────────
-
+// ── Date helper ───────────────────────────────────────────────────
 function localDate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-function getDeletedIds() {
-  try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || '[]')); }
-  catch { return new Set(); }
-}
-function getStoredTags() {
-  try { return JSON.parse(localStorage.getItem(TAGS_KEY) || '{}'); }
-  catch { return {}; }
-}
-function getTaggedFor(id, base) {
-  return getStoredTags()[id] ?? (base.tagged_for || []);
-}
-function setTaggedFor(id, names) {
-  const s = getStoredTags(); s[id] = names;
-  localStorage.setItem(TAGS_KEY, JSON.stringify(s));
-  scheduleSync();
-}
-function getReadOverrides() {
-  try { return JSON.parse(localStorage.getItem(READS_KEY) || '{}'); }
-  catch { return {}; }
-}
-function applyReadOverride(article) {
-  const ov = getReadOverrides()[article.id];
-  if (!ov) return article;
-  return { ...article, status: ov.status, date_read: ov.date_read };
-}
+// ── State mutations ───────────────────────────────────────────────
 function toggleRead(id) {
-  const articles = getArticles();
-  const a = articles.find(x => x.id === id);
+  const a = allArticles.find(x => x.id === id);
   if (!a) return;
-  const ov = getReadOverrides();
-  if (a.status === 'read') {
-    ov[id] = { status: 'unread', date_read: null };
-  } else {
-    ov[id] = { status: 'read', date_read: localDate() };
-  }
-  localStorage.setItem(READS_KEY, JSON.stringify(ov));
+  if (a.status === 'read') { a.status = 'unread'; a.date_read = null; }
+  else { a.status = 'read'; a.date_read = localDate(); }
   scheduleSync();
   buildFilters();
   renderGrid();
-  // Refresh panel if open
   if (selectedId === id) openPanel(id);
 }
-function getTopicOverrides() {
-  try { return JSON.parse(localStorage.getItem(TOPICS_KEY) || '{}'); }
-  catch { return {}; }
-}
-function getTopics(id, base) {
-  return getTopicOverrides()[id] ?? (base.topics || []);
-}
+
 function setTopics(id, topics) {
-  const ov = getTopicOverrides(); ov[id] = topics;
-  localStorage.setItem(TOPICS_KEY, JSON.stringify(ov));
+  const a = allArticles.find(x => x.id === id);
+  if (a) { a.topics = topics; scheduleSync(); }
+}
+
+function setTaggedFor(id, names) {
+  const a = allArticles.find(x => x.id === id);
+  if (a) { a.tagged_for = names; scheduleSync(); }
+}
+
+function deleteArticle(id) {
+  allArticles = allArticles.filter(a => a.id !== id);
   scheduleSync();
+  buildFilters();
+  renderGrid();
 }
 
-function getArticles() {
-  const del = getDeletedIds();
-  return allArticles.filter(a => !del.has(a.id)).map(a => {
-    const r = applyReadOverride(a);
-    return { ...r, topics: getTopics(a.id, r) };
-  });
-}
-function getAddedArticles() {
-  try { return JSON.parse(localStorage.getItem(ADDED_KEY) || '[]'); }
-  catch { return []; }
-}
-function saveAddedArticle(a) {
-  const ex = getAddedArticles(); ex.unshift(a);
-  localStorage.setItem(ADDED_KEY, JSON.stringify(ex));
-}
-
-// ── Tag colors ────────────────────────────────────────────────────
-
+// ── Tag colours ───────────────────────────────────────────────────
 const TAG_PALETTE = [
-  ['#fde8e0', '#8b3318'],  // terracotta
-  ['#e4ecff', '#2a3f8b'],  // blue
-  ['#fdf3dc', '#7a4d00'],  // amber
-  ['#e4f5e4', '#1f6b1f'],  // green
-  ['#f0e4ff', '#5c2d8b'],  // purple
-  ['#dcf5f5', '#0f6666'],  // teal
-  ['#ffe4f2', '#8b1a55'],  // pink
-  ['#edffd4', '#3a6600'],  // lime
+  ['#fde8e0', '#8b3318'],
+  ['#e4ecff', '#2a3f8b'],
+  ['#fdf3dc', '#7a4d00'],
+  ['#e4f5e4', '#1f6b1f'],
+  ['#f0e4ff', '#5c2d8b'],
+  ['#dcf5f5', '#0f6666'],
+  ['#ffe4f2', '#8b1a55'],
+  ['#edffd4', '#3a6600'],
 ];
 
 function tagStyle(name) {
@@ -181,36 +158,33 @@ function topicTag(t) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-
 function formatDate(s) {
   if (!s) return '';
   return new Date(s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
 function getAllTopics(articles) {
   const s = new Set();
   articles.forEach(a => (a.topics || []).forEach(t => s.add(t)));
   return [...s].sort();
 }
+
 function getAllPeople(articles) {
   const s = new Set();
-  articles.forEach(a => getTaggedFor(a.id, a).forEach(p => s.add(p)));
+  articles.forEach(a => (a.tagged_for || []).forEach(p => s.add(p)));
   return [...s].sort();
 }
 
 // ── Filters ───────────────────────────────────────────────────────
-
 function buildFilters() {
-  const articles = getArticles();
   const container = document.getElementById('filters');
-  const topics  = getAllTopics(articles);
-  const people  = getAllPeople(articles);
-  const nRead   = articles.filter(a => a.status === 'read').length;
-  const nUnread = articles.filter(a => a.status === 'unread').length;
+  const topics  = getAllTopics(allArticles);
+  const people  = getAllPeople(allArticles);
+  const nRead   = allArticles.filter(a => a.status === 'read').length;
+  const nUnread = allArticles.filter(a => a.status === 'unread').length;
 
-  // Status pills
   let h = statusBtn('all','All') + statusBtn('unread','To Read') + statusBtn('read','Read');
 
-  // Topic dropdown
   if (topics.length) {
     const activeTopic = activeFilters.topic;
     const label = activeTopic ? activeTopic : 'Topic';
@@ -227,7 +201,6 @@ function buildFilters() {
     </div>`;
   }
 
-  // People dropdown
   if (people.length) {
     const activePerson = activeFilters.person;
     const label = activePerson ? activePerson : 'For';
@@ -247,7 +220,6 @@ function buildFilters() {
   h += `<span class="stats">${nUnread} unread · ${nRead} read</span>`;
   container.innerHTML = h;
 
-  // Status pill events
   container.querySelectorAll('.filter-btn').forEach(b => {
     b.addEventListener('click', () => {
       const val = b.dataset.value;
@@ -258,11 +230,9 @@ function buildFilters() {
     });
   });
 
-  // Dropdown open/close
   ['topic','person'].forEach(type => {
     const btn  = document.getElementById(`fdd-${type}-btn`);
     const menu = document.getElementById(`fdd-${type}-menu`);
-    const clr  = document.getElementById(`fdd-${type}-clear`);
     if (!btn || !menu) return;
 
     btn.addEventListener('click', e => {
@@ -271,7 +241,6 @@ function buildFilters() {
         buildFilters(); renderGrid(); return;
       }
       menu.classList.toggle('fdd-open');
-      // Close other dropdowns
       ['topic','person'].filter(t => t !== type).forEach(t => {
         document.getElementById(`fdd-${t}-menu`)?.classList.remove('fdd-open');
       });
@@ -287,7 +256,6 @@ function buildFilters() {
     });
   });
 
-  // Close dropdowns on outside click
   document.addEventListener('click', e => {
     if (!e.target.closest('.fdd')) {
       document.querySelectorAll('.fdd-menu').forEach(m => m.classList.remove('fdd-open'));
@@ -301,15 +269,13 @@ function statusBtn(value, label) {
 }
 
 // ── Render grid ───────────────────────────────────────────────────
-
 function renderGrid() {
-  const articles = getArticles();
   const grid = document.getElementById('article-grid');
-  let filtered = articles;
+  let filtered = [...allArticles];
 
   if (activeFilters.status) filtered = filtered.filter(a => a.status === activeFilters.status);
   if (activeFilters.topic)  filtered = filtered.filter(a => (a.topics||[]).includes(activeFilters.topic));
-  if (activeFilters.person) filtered = filtered.filter(a => getTaggedFor(a.id,a).includes(activeFilters.person));
+  if (activeFilters.person) filtered = filtered.filter(a => (a.tagged_for||[]).includes(activeFilters.person));
 
   if (filtered.length === 0) {
     grid.innerHTML = `<div class="empty-state" style="background:#fff;">
@@ -320,10 +286,9 @@ function renderGrid() {
   }
 
   grid.innerHTML = filtered.map(a => {
-    // Cap at 3 tags total on the card
     const allTagItems = [
       ...(a.topics||[]).map(t => topicTag(t)),
-      ...getTaggedFor(a.id,a).map(p => `<span class="tag person">${p}</span>`),
+      ...(a.tagged_for||[]).map(p => `<span class="tag person">${p}</span>`),
     ];
     const visibleTags = allTagItems.slice(0, 3).join('');
     const extra = allTagItems.length > 3 ? `<span class="tag-overflow">+${allTagItems.length - 3}</span>` : '';
@@ -360,9 +325,8 @@ function renderGrid() {
 }
 
 // ── Panel ─────────────────────────────────────────────────────────
-
 function openPanel(id) {
-  const a = getArticles().find(x => x.id === id);
+  const a = allArticles.find(x => x.id === id);
   if (!a) return;
   selectedId = id;
 
@@ -408,10 +372,10 @@ function openPanel(id) {
     </div>
   `;
 
-  renderTopicChips(id, a);
-  bindTopicInputs(id, a);
-  renderTagChips(id, a);
-  bindTagInputs(id, a);
+  renderTopicChips(id);
+  bindTopicInputs(id);
+  renderTagChips(id);
+  bindTagInputs(id);
 
   document.getElementById('panel-read-btn').addEventListener('click', () => toggleRead(id));
   document.getElementById('panel-share-btn').addEventListener('click', () => openShare(id));
@@ -419,8 +383,6 @@ function openPanel(id) {
 
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('article-grid').classList.add('panel-open');
-
-  // Highlight selected card
   document.querySelectorAll('.article-card').forEach(c => c.classList.toggle('selected', c.dataset.id === id));
 }
 
@@ -434,9 +396,9 @@ function closePanel() {
 document.getElementById('panel-close').addEventListener('click', closePanel);
 
 // ── Topic edit helpers ────────────────────────────────────────────
-
-function renderTopicChips(id, base) {
-  const topics = getTopics(id, base);
+function renderTopicChips(id) {
+  const a = allArticles.find(x => x.id === id);
+  const topics = a?.topics || [];
   const el = document.getElementById(`ptopic-chips-${id}`);
   if (!el) return;
   el.innerHTML = topics.map((t, i) => {
@@ -447,24 +409,27 @@ function renderTopicChips(id, base) {
   }).join('');
   el.querySelectorAll('.panel-topic-remove').forEach(btn => {
     btn.addEventListener('click', () => {
-      const t = getTopics(id, base);
+      const a = allArticles.find(x => x.id === id);
+      if (!a) return;
+      const t = [...(a.topics || [])];
       t.splice(Number(btn.dataset.index), 1);
       setTopics(id, t);
-      renderTopicChips(id, base);
+      renderTopicChips(id);
       buildFilters(); renderGrid();
     });
   });
 }
 
-function bindTopicInputs(id, base) {
+function bindTopicInputs(id) {
   function addTopic() {
     const inp = document.getElementById(`ptopic-input-${id}`);
     const name = inp?.value.trim();
     if (!name) return;
-    const t = getTopics(id, base);
+    const a = allArticles.find(x => x.id === id);
+    const t = [...(a?.topics || [])];
     if (!t.includes(name)) { t.push(name); setTopics(id, t); }
     if (inp) inp.value = '';
-    renderTopicChips(id, base);
+    renderTopicChips(id);
     buildFilters(); renderGrid();
   }
   document.getElementById(`ptopic-add-${id}`)?.addEventListener('click', addTopic);
@@ -474,9 +439,9 @@ function bindTopicInputs(id, base) {
 }
 
 // ── Tag helpers ───────────────────────────────────────────────────
-
-function renderTagChips(id, base) {
-  const names = getTaggedFor(id, base);
+function renderTagChips(id) {
+  const a = allArticles.find(x => x.id === id);
+  const names = a?.tagged_for || [];
   const el = document.getElementById(`ptag-chips-${id}`);
   if (!el) return;
   el.innerHTML = names.map((p, i) => `
@@ -485,27 +450,28 @@ function renderTagChips(id, base) {
     </span>`).join('');
   el.querySelectorAll('.panel-tag-remove').forEach(btn => {
     btn.addEventListener('click', () => {
-      const n = getTaggedFor(id, base);
+      const a = allArticles.find(x => x.id === id);
+      if (!a) return;
+      const n = [...(a.tagged_for || [])];
       n.splice(Number(btn.dataset.index), 1);
       setTaggedFor(id, n);
-      renderTagChips(id, base);
-      buildFilters();
-      renderGrid();
+      renderTagChips(id);
+      buildFilters(); renderGrid();
     });
   });
 }
 
-function bindTagInputs(id, base) {
+function bindTagInputs(id) {
   function addTag() {
     const inp = document.getElementById(`ptag-input-${id}`);
     const name = inp?.value.trim();
     if (!name) return;
-    const n = getTaggedFor(id, base);
+    const a = allArticles.find(x => x.id === id);
+    const n = [...(a?.tagged_for || [])];
     if (!n.includes(name)) { n.push(name); setTaggedFor(id, n); }
     if (inp) inp.value = '';
-    renderTagChips(id, base);
-    buildFilters();
-    renderGrid();
+    renderTagChips(id);
+    buildFilters(); renderGrid();
   }
   document.getElementById(`ptag-add-${id}`)?.addEventListener('click', addTag);
   document.getElementById(`ptag-input-${id}`)?.addEventListener('keydown', e => {
@@ -513,26 +479,15 @@ function bindTagInputs(id, base) {
   });
 }
 
-// ── Delete ────────────────────────────────────────────────────────
-
-function deleteArticle(id) {
-  const del = getDeletedIds(); del.add(id);
-  localStorage.setItem(DELETED_KEY, JSON.stringify([...del]));
-  scheduleSync();
-  buildFilters();
-  renderGrid();
-}
-
 // ── Share ─────────────────────────────────────────────────────────
-
 function openShare(id) {
-  const a = getArticles().find(x => x.id === id);
+  const a = allArticles.find(x => x.id === id);
   shareArticleData = a || null;
   if (!a) return;
   document.getElementById('share-article-title').textContent = `"${a.title || a.url}"`;
   document.getElementById('share-email').value = '';
   document.getElementById('share-note').value = '';
-  const tagged = getTaggedFor(a.id, a);
+  const tagged = a.tagged_for || [];
   const el = document.getElementById('share-tagged');
   if (tagged.length) {
     el.innerHTML = `<div class="share-tagged-label">Tagged for</div>` +
@@ -584,7 +539,6 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Add article ───────────────────────────────────────────────────
-
 document.getElementById('add-url').addEventListener('keydown', async e => {
   if (e.key !== 'Enter') return;
   const input  = document.getElementById('add-url');
@@ -594,20 +548,13 @@ document.getElementById('add-url').addEventListener('keydown', async e => {
   input.disabled = true;
   status.textContent = 'Saving…';
   try {
-    const res = await fetch('/api/add', {
+    const res = await authFetch('/api/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     });
     if (!res.ok) throw new Error();
-    const data = await res.json();
-    const article = {
-      id: `local_${Date.now()}`,
-      date_saved: localDate(),
-      date_read: null, status: 'unread', notes: '', tagged_for: [],
-      ...data,
-    };
-    saveAddedArticle(article);
+    const article = await res.json();
     allArticles.unshift(article);
     input.value = '';
     status.textContent = '';
@@ -622,31 +569,80 @@ document.getElementById('add-url').addEventListener('keydown', async e => {
   }
 });
 
-// ── Init ──────────────────────────────────────────────────────────
+// ── Clerk init + app bootstrap ────────────────────────────────────
+function updateNavUser(user) {
+  const name = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Account';
+  document.getElementById('nav-user').innerHTML = `
+    <span class="nav-user-name">${name}</span>
+    <button class="nav-signout-btn" onclick="window.__clerk.signOut().then(()=>location.reload())">Sign out</button>
+  `;
+}
 
-async function init() {
+async function initApp() {
   try {
-    const res = await fetch('/api/articles');
-    if (res.ok) {
-      const data = await res.json();
-      if (data.length > 0) allArticles = data;
-    }
+    const res = await authFetch('/api/articles');
+    if (res.ok) allArticles = await res.json();
   } catch {}
-  if (allArticles.length === 0 && typeof LIBRARY_DATA !== 'undefined') {
-    allArticles = LIBRARY_DATA.articles ?? [];
-  }
-  const added = getAddedArticles();
-  const ids = new Set(allArticles.map(a => a.id));
-  allArticles = [...added.filter(a => !ids.has(a.id)), ...allArticles];
   buildFilters();
   renderGrid();
+}
+
+async function init() {
+  let publishableKey = '';
+  try {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    publishableKey = cfg.publishableKey || '';
+  } catch {}
+
+  if (!publishableKey) {
+    // No auth configured — run in single-user mode without sign-in
+    initApp();
+    return;
+  }
+
+  // Derive Clerk JS CDN URL from the publishable key
+  let clerkLoaded = false;
+  try {
+    const parts = publishableKey.split('_');
+    const b64   = parts[parts.length - 1];
+    const host  = atob(b64).replace(/\$$/, '');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://${host}/npm/@clerk/clerk-js@latest/dist/clerk.browser.js`;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    clerkLoaded = true;
+  } catch {
+    initApp();
+    return;
+  }
+
+  const clerk = new window.Clerk(publishableKey);
+  await clerk.load();
+  window.__clerk = clerk;
+
+  if (!clerk.user) {
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('auth-sign-in-btn').addEventListener('click', () => clerk.openSignIn());
+    clerk.addListener(({ user }) => {
+      if (user) {
+        document.getElementById('auth-overlay').style.display = 'none';
+        updateNavUser(user);
+        initApp();
+      }
+    });
+  } else {
+    updateNavUser(clerk.user);
+    initApp();
+  }
 }
 
 init();
 </script>
 
 <style>
-/* Loading dots */
 .loading-dots {
   display: flex;
   gap: 6px;
